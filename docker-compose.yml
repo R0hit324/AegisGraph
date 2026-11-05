@@ -1,0 +1,77 @@
+### Docker Compose topology & build context for AegisGraph container stack.
+name: aegisgraph
+
+services:
+  # ------------------------------------------------------------------ Database
+  db:
+    image: postgres:17.5-alpine
+    container_name: aegisgraph-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is missing — copy .env.example to .env}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is missing — copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing — copy .env.example to .env}
+    volumes:
+      # Persistent storage — survives `docker compose down` and Container restarts.
+      - aegisgraph_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+    # SECURITY: the database is NOT published to the host network by default.
+    # Only containers on the internal Docker network can reach it.
+    # If you need local psql access, map it explicitly to the loopback interface
+    # ONLY. Uncomment the following two lines:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+
+  # ------------------------------------------------------------------- Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aegisgraph-backend
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Run migrations, then start the API server.
+    # Running as non-root (USER 10001 in the Dockerfile).
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live', timeout=3); sys.exit(0 if r.status==200 else 1)\""
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ------------------------------------------------------------------ Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Public value (bundled into browser JS) — must NEVER hold a secret.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    container_name: aegisgraph-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  aegisgraph_pgdata:

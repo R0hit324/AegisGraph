@@ -1,0 +1,43 @@
+# ============ Environment & secrets ============
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ============ Dependencies ============
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# ============ Build artifacts ============
+dist/
+build/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+coverage/
+htmlcov/
+.coverage
+coverage*.lcov
+
+# ============ Test artifacts ============
+frontend/coverage/
+
+# ============ Backups (contain database data) ============
+backups/
+*.sql
+*.dump
+
+# ============ OS / editor ============
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.log
+alembic/versions/__pycache__/

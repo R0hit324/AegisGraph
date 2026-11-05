@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-types
+coverage
+tests
+.c8
+*.log
+Dockerfile
+.dockerignore
+.env
+.env.*
