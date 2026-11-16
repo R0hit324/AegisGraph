@@ -1,4 +1,4 @@
-"""AegisGraph backend — application factory and entry point.
+"""AegisGraph backend ??? application factory and entry point.
 
 Run (local dev):
     uvicorn app.main:app --reload --port 8000
@@ -6,6 +6,7 @@ Run (local dev):
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any, cast
@@ -13,9 +14,13 @@ from typing import Any, cast
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1 import api_router
+from app.api.v1.discovery import router as discovery_router
+from app.api.routes.auth import router as auth_router
+from app.api.routes.organizations import router as organizations_router
 from app.config.settings import Settings, get_settings
 from app.core.exceptions import (
     AppError,
@@ -25,7 +30,12 @@ from app.core.exceptions import (
     validation_error_handler,
 )
 from app.core.logging import configure_logging, get_logger
+from app.core.security import set_secret_key
 from app.database import dispose_engine
+
+# Import the models package so every Phase 2 model is registered with
+# Base.metadata and all string-based relationships resolve at runtime.
+import app.models  # noqa: F401
 
 logger = get_logger("startup")
 
@@ -34,9 +44,13 @@ def _configure_security_middleware(app: FastAPI, settings: Settings) -> None:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
-        allow_credentials=False,  # Phase 1 API is cookie-free; revisit with auth.
-        allow_methods=["GET"],
-        allow_headers=["application/json"],
+        # Phase 2: the session lives in an HttpOnly cookie, so cross-origin
+        # browser calls need credentialed CORS (origins are an explicit
+        # allowlist — never a wildcard — so cookies are never mirrored to
+        # unlisted hosts).
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["application/json", "content-type"],
         max_age=600,
     )
 
@@ -56,6 +70,8 @@ def _starlette_handler(
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    # Set the secret key for JWT token signing
+    set_secret_key(settings.secret_key)
     logger.info(
         "application_starting",
         extra={"version": settings.app_version, "mode": settings.app_env},
@@ -73,7 +89,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=f"{settings.app_name} API",
         description=(
-            "AegisGraph — Unified Attack Surface Discovery & Website Security "
+            "AegisGraph ??? Unified Attack Surface Discovery & Website Security "
             "Assessment Platform. Phase 1 foundation: health and readiness only."
         ),
         version=settings.app_version,
@@ -87,8 +103,8 @@ def create_app() -> FastAPI:
     _configure_security_middleware(app, settings)
 
     # ------------------------------------------------------- error handlers
-    # See `_starlette_handler` — Starlette only invokes a handler for its
-    # registered exception type, so the narrowed signatures are safe.
+    # See `_starlette_handler` ???" Starlette only invokes a handler for its
+    # registered exception type, so the narrower signatures are safe.
     app.add_exception_handler(AppError, _starlette_handler(app_error_handler))
     app.add_exception_handler(RequestValidationError, _starlette_handler(validation_error_handler))
     app.add_exception_handler(SQLAlchemyError, _starlette_handler(database_error_handler))
@@ -97,6 +113,12 @@ def create_app() -> FastAPI:
 
     # ------------------------------------------------------------ API router
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+    # Phase 2: Authentication and scope management
+    # (routers carry their own prefix, e.g. /auth, /organizations)
+    app.include_router(auth_router, tags=["auth"])
+    app.include_router(organizations_router, tags=["organizations"])
+    # Phase 3: Attack Surface Discovery Engine
+    app.include_router(discovery_router, tags=["discovery"])
 
     # ------------------------------------------------------------ root info
     @app.get("/", include_in_schema=False)

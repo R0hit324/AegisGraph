@@ -1,0 +1,202 @@
+# AegisGraph CI — GitHub Actions
+# Triggers on every push and PR. Runs backend + frontend quality gates in Linux.
+# Docker services (PostgreSQL) are spun up via the actions runner's service container.
+
+name: AegisGraph CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (pytest, ruff, mypy, pip-audit)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_DB: aegisgraph
+          POSTGRES_USER: aegisgraph
+          POSTGRES_PASSWORD: ci-test-pw
+        ports: [5432]
+        options: >-
+          --health-cmd="pg_isready -U aegisgraph -d aegisgraph"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    env:
+      DATABASE_URL: postgresql+psycopg://aegisgraph:ci-test-pw@localhost:5432/aegisgraph
+      APP_ENV: test
+      APP_VERSION: "0.1.0-ci"
+      APP_SECRET_KEY: ci-test-secret-key-not-production
+      LOG_LEVEL: WARNING
+      ALLOWED_ORIGINS: http://localhost:3000
+      PYTHONDONTWRITEBYTECODE: 1
+      PYTHONUNBUFFERED: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: "backend/requirements-dev.txt"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+
+      - name: Run ruff lint
+        working-directory: backend
+        run: python -m ruff check app tests migrations
+
+      - name: Run ruff format check
+        working-directory: backend
+        run: python -m ruff format --check app tests migrations
+
+      - name: Run mypy
+        working-directory: backend
+        run: python -m mypy app
+
+      - name: Run pytest
+        working-directory: backend
+        run: python -m pytest
+
+      - name: Run pip-audit
+        working-directory: backend
+        run: python -m pip_audit -r requirements.txt
+
+  frontend:
+    name: Frontend (lint, types, tests, build, audit)
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: "--max-old-space-size=4096"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Run TypeScript check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Run unit tests
+        working-directory: frontend
+        run: npm run test
+
+      - name: Build production
+        working-directory: frontend
+        run: npm run build
+
+      - name: Audit production dependencies
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Run Playwright smoke tests
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: http://localhost:3000
+        run: |
+          # Start the real Docker stack (frontend+backend+db) for E2E tests
+          docker compose up -d --build
+          # Wait for health checks
+          sleep 30
+          npx playwright test --reporter=list
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/test-results/
+
+  compose-validation:
+    name: Compose config validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+        working-directory: .
+
+  backup-restore:
+    name: Backup & Restore (Linux scripts)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_DB: aegisgraph
+          POSTGRES_USER: aegisgraph
+          POSTGRES_PASSWORD: ci-test-pw
+        ports: [5432]
+        options: >-
+          --health-cmd="pg_isready -U aegisgraph -d aegisgraph"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    env:
+      POSTGRES_DB: aegisgraph
+      POSTGRES_USER: aegisgraph
+      POSTGRES_PASSWORD: ci-test-pw
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for DB ready
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U aegisgraph -d aegisgraph; then exit 0; fi
+            sleep 1
+          done; exit 1
+
+      - name: Seed test data
+        run: |
+          PGPASSWORD=ci-test-pw psql -h localhost -U aegisgraph -d aegisgraph -c "
+            CREATE TABLE IF NOT EXISTS app_metadata (
+              id serial primary key, key varchar(100) unique, value text,
+              created_at timestamptz default now(), updated_at timestamptz default now()
+            );
+            INSERT INTO app_metadata (key, value) VALUES ('ci_probe', 'pre-backup');
+          "
+
+      - name: Run backup script
+        run: |
+          ./scripts/backup-database.sh
+          test -f backups/aegisgraph_backup_*.sql
+
+      - name: Destroy data
+        run: |
+          PGPASSWORD=ci-test-pw psql -h localhost -U aegisgraph -d aegisgraph -c "DELETE FROM app_metadata;"
+          PGPASSWORD=ci-test-pw psql -h localhost -U aegisgraph -d aegisgraph -c "SELECT count(*) FROM app_metadata;"
+
+      - name: Run restore script
+        run: |
+          BACKUP=$(ls -1 backups/aegisgraph_backup_*.sql | tail -1)
+          ./scripts/restore-database.sh "$BACKUP" --force
+
+      - name: Verify restored data + alembic_version
+        run: |
+          PGPASSWORD=ci-test-pw psql -h localhost -U aegisgraph -d aegisgraph -c "
+            SELECT key, value FROM app_metadata WHERE key='ci_probe';
+            SELECT version_num FROM alembic_version;
+          "

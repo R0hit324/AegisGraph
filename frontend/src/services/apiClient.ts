@@ -5,6 +5,10 @@
  * - The backend base URL comes from `VITE_API_BASE_URL` ONLY (public value).
  *   Never hardcode URLs at call sites. Secrets NEVER pass through this client.
  * - Every request carries a hard timeout through `AbortSignal`.
+ * - Every request sends credentials: the Phase 2 session lives in an
+ *   HttpOnly cookie (`aegis_access_token`) that JavaScript can never read;
+ *   the browser attaches it automatically when CORS allow-credentials and
+ *   the explicit origin allowlist permit it.
  * - Error bodies are parsed defensively; unknown shapes never crash callers.
  */
 
@@ -59,9 +63,32 @@ function resolveUrl(path: string): string {
  */
 export async function request<T>(
   path: string,
-  init: { method?: "GET" | "POST"; timeoutMs?: number; signal?: AbortSignal } = {},
+  init: {
+    method?: "GET" | "POST" | "PUT" | "DELETE";
+    /** JSON body — serialized with Content-Type: application/json. */
+    body?: unknown;
+    /** Pre-encoded body (e.g. form login) sent with an explicit content type. */
+    bodyText?: string;
+    contentType?: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<T> {
-  const { method = "GET", timeoutMs = DEFAULT_TIMEOUT_MS, signal } = init;
+  const {
+    method = "GET",
+    body,
+    bodyText,
+    contentType,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal,
+  } = init;
+
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (bodyText !== undefined) {
+    headers["Content-Type"] = contentType ?? "application/x-www-form-urlencoded";
+  } else if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
 
   let timedOut = false;
   const timeoutSignal = new AbortController();
@@ -85,9 +112,14 @@ export async function request<T>(
   try {
     response = await fetch(url, {
       method,
-      headers: { Accept: "application/json" },
+      headers,
+      ...(bodyText !== undefined
+        ? { body: bodyText }
+        : body !== undefined
+          ? { body: JSON.stringify(body) }
+          : {}),
       signal: timeoutSignal.signal,
-      credentials: "omit",
+      credentials: "include",
       referrerPolicy: "strict-origin-when-cross-origin",
     });
   } catch (cause) {
@@ -104,13 +136,22 @@ export async function request<T>(
   }
   clearTimeout(timeoutHandle);
 
+  // 204 No Content (delete endpoints) has no body to parse.
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   if (!response.ok) {
-    // The backend error envelope is {"error": {"code", "message"}}. Never trust
-    // it beyond that; partial data simply yields the generic message.
+    // The backend error envelope is {"error": {"code", "message"}} for the
+    // versioned API routes, but FastAPI's built-in HTTPException responses
+    // (auth and organizations) use {"detail": "..."}. Parse both defensively;
+    // unknown shapes never crash callers.
     let code = `http_${response.status}`;
     let message = `The API responded with HTTP ${response.status}.`;
     try {
-      const payload = (await response.json()) as Partial<ApiErrorPayload>;
+      const payload = (await response.json()) as Partial<ApiErrorPayload> & {
+        detail?: unknown;
+      };
       const envelope = payload.error;
       if (
         envelope &&
@@ -119,6 +160,8 @@ export async function request<T>(
       ) {
         code = envelope.code;
         message = envelope.message;
+      } else if (typeof payload.detail === "string" && payload.detail !== "") {
+        message = payload.detail;
       }
     } catch {
       // Non-JSON body — keep generic message.

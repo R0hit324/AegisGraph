@@ -22,7 +22,7 @@ export function WelcomePage() {
           <span className="text-sm font-semibold tracking-tight">AegisGraph</span>
         </div>
         <span className="text-[11px] uppercase tracking-widest text-faint">
-          Phase 1 — Foundation
+          Phase 2 — Scope foundation
         </span>
       </header>
 

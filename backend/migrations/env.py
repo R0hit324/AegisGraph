@@ -34,10 +34,13 @@ def _database_url() -> str:
         raise RuntimeError(
             "DATABASE_URL is not set. Export it (e.g. from .env) before running migrations."
         )
+    # Allow SQLite for testing (APP_ENV=test)
+    if url.startswith("sqlite"):
+        return url
     if not url.startswith("postgresql+psycopg://"):
         raise RuntimeError(
-            "AegisGraph migrations run against PostgreSQL only"
-            " ('postgresql+psycopg://…', not sqlite)."
+            "AegisGraph migrations run against PostgreSQL or SQLite only"
+            " ('postgresql+psycopg://…' or 'sqlite:///…')."
         )
     return url
 

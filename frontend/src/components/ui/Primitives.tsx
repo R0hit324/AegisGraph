@@ -1,6 +1,54 @@
 /** Basic presentational building blocks shared across pages. */
 
-import type { ReactNode } from "react";
+import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+
+/** Shared control styling — border, surface and focus affordance only. */
+export const CONTROL_CLASSES =
+  "w-full rounded-quiet border border-border bg-surface-3/40 px-3 py-2 text-sm text-text placeholder:text-faint hover:border-border-strong";
+
+/** Labeled form field wrapper; hint text stays honest and short. */
+export function Field({
+  label,
+  htmlFor,
+  hint,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={htmlFor} className="text-[12px] font-medium text-muted">
+        {label}
+      </label>
+      {children}
+      {hint !== undefined && <p className="text-[11px] leading-relaxed text-faint">{hint}</p>}
+    </div>
+  );
+}
+
+/** Text/password input on the token system (focus ring comes from :focus-visible). */
+export function TextInput({
+  className = "",
+  ...rest
+}: InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...rest} className={`${CONTROL_CLASSES} ${className}`} />;
+}
+
+/** Small select for role pickers and similar bounded choices. */
+export function SelectInput({
+  className = "",
+  children,
+  ...rest
+}: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select {...rest} className={`${CONTROL_CLASSES} ${className}`}>
+      {children}
+    </select>
+  );
+}
 
 export function Panel({
   title,

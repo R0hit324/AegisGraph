@@ -2,6 +2,10 @@
 
 Each test gets a fresh SQLite database file and freshly built app so settings
 changes take effect and database state never leaks between tests.
+
+Phase 2: Import all models before test fixtures so that Base.metadata
+contains all tables (users, organizations, scopes, audit_logs, etc.)
+when create_all() is called.
 """
 
 from __future__ import annotations
@@ -13,6 +17,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+from sqlalchemy import MetaData
+
+# Phase 2: Import all models so they are registered with Base.metadata
+# before any create_all() call in test fixtures.
+from app.models.users import User  # noqa: F401
+from app.models.organizations import Organization  # noqa: F401
+from app.models.user_organizations import UserOrganization  # noqa: F401
+from app.models.roles import Role  # noqa: F401
+from app.models.scopes import Scope  # noqa: F401
+from app.models.audit_logs import AuditLog  # noqa: F401
+from app.models.metadata import AppMetadata  # noqa: F401
 
 # Configure a valid test environment BEFORE app modules import settings.
 TEST_ENV: dict[str, str] = {
@@ -51,6 +66,9 @@ def app(test_env: dict[str, str]) -> Iterator[FastAPI]:
 
     dispose_engine()
     engine = get_engine()
+    # Drop all tables first to ensure a clean state, then create all tables.
+    # This handles cases where indexes or tables from previous test runs persist.
+    Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     from app.main import create_app
 

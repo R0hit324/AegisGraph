@@ -2,6 +2,7 @@
 
 import {
   Boxes,
+  Crosshair,
   FileText,
   LayoutDashboard,
   Network,
@@ -10,6 +11,7 @@ import {
   ShieldCheck,
   Sparkles,
   TriangleAlert,
+  Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -35,13 +37,31 @@ export const NAV_ITEMS: NavItem[] = [
     description: "Platform status and the entry point for every future assessment.",
   },
   {
+    path: "scopes",
+    label: "Scopes",
+    title: "Scopes",
+    icon: Crosshair,
+    phase: "Phase 2",
+    description:
+      "Authorized domains and address patterns that define exactly where AegisGraph is permitted to operate.",
+  },
+  {
+    path: "organization",
+    label: "Organization",
+    title: "Organization",
+    icon: Users,
+    phase: "Phase 2",
+    description:
+      "Members, roles and the security activity trail of the organizations you belong to.",
+  },
+  {
     path: "assets",
     label: "Assets",
     title: "Assets",
     icon: Boxes,
-    phase: "Phase 2",
+    phase: "Phase 3",
     description:
-      "Assets are internet-facing systems within your authorized scope — domains, subdomains, IPs and services.",
+      "Assets are internet-facing systems within your authorized scope — domains, subdomains, IPs and services. Discovered from live scopes in Phase 3.",
   },
   {
     path: "discovery",

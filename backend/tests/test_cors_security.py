@@ -49,7 +49,21 @@ def test_preflight_from_disallowed_origin_is_denied(client: TestClient) -> None:
     assert "access-control-allow-origin" not in response.headers
 
 
-def test_no_cors_credentials_are_exposed(client: TestClient) -> None:
-    """Phase 1 is cookie-free; credentials must not be promised."""
-    response = client.get("/api/v1/health", headers={"Origin": ALLOWED})
-    assert response.headers.get("access-control-allow-credentials", "").lower() != "true"
+def test_credentials_only_promised_with_explicit_allowlist(client: TestClient) -> None:
+    """Phase 2 cookie sessions require credentialed CORS, constrained to the
+    explicit allowlist: credentials are promised to allowed origins only,
+    and the allow-origin is never a wildcard (which would mirror cookies to
+    unlisted hosts)."""
+    allowed = client.get("/api/v1/health", headers={"Origin": ALLOWED})
+    assert allowed.headers["access-control-allow-origin"] == ALLOWED
+    assert allowed.headers["access-control-allow-credentials"].lower() == "true"
+
+    # Wildcard + credentials is the dangerous combination — it must never occur:
+    # for a foreign origin the reflected allow-origin stays absent, so browsers
+    # will never attach credentials (Starlette may still emit the header, but
+    # it is inert without a matching allow-origin).
+    foreign = client.get("/api/v1/health", headers={"Origin": NOT_ALLOWED})
+    assert "access-control-allow-origin" not in foreign.headers
+    assert foreign.headers.get("access-control-allow-origin") != "*"
+    assert allowed.headers["access-control-allow-credentials"].lower() == "true"
+    assert allowed.headers["access-control-allow-origin"] == ALLOWED

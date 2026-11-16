@@ -1,19 +1,22 @@
 /** Persistent application chrome: sidebar navigation + topbar + content outlet. */
 
 import { useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { CircleUserRound, Menu, X } from "lucide-react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { LogOut, Menu, Settings, X } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Badge, StatusDot } from "@/components/ui/Primitives";
 import { NAV_ITEMS } from "@/app/navigation";
 import { ConnectionProvider } from "@/app/connection";
 import { useBackendHealth } from "@/hooks/useBackendHealth";
+import { useSession } from "@/app/useSession";
 import { getApiBaseUrl } from "@/services/apiClient";
 
 export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const connection = useBackendHealth();
+  const session = useSession();
+  const user = session.user;
 
   // Determine page title from the second path segment (/app/<segment>).
   const segment = location.pathname.split("/")[2] ?? "";
@@ -104,13 +107,7 @@ export function AppShell() {
               {statusLabel}
             </span>
             <span className="hidden text-[11px] text-faint sm:inline">v{__APP_VERSION__}</span>
-            <span
-              title="User profiles arrive with a future authentication phase"
-              className="text-muted"
-            >
-              <CircleUserRound size={20} aria-hidden />
-              <span className="sr-only">Profile placeholder</span>
-            </span>
+            {user !== null && <UserMenu username={user.username} onSignOut={() => void session.signOut()} />}
           </div>
         </header>
 
@@ -165,8 +162,88 @@ function PlatformStatus({
       </div>
       <div className="mt-1 flex items-center justify-between px-1">
         <span>Release</span>
-        <span className="text-muted">Phase 1 foundation</span>
+        <span className="text-muted">Phase 2 — scopes &amp; access</span>
       </div>
+    </div>
+  );
+}
+
+/** Topbar user chip: initials, name and a sign-out menu. */
+function UserMenu({
+  username,
+  onSignOut,
+}: {
+  username: string;
+  onSignOut: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-testid="user-menu-button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex items-center gap-2.5 rounded-quiet border border-border bg-surface-2 py-1 pl-1 pr-2.5 hover:border-border-strong"
+      >
+        <span
+          aria-hidden
+          className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-surface-3/60 text-[11px] font-semibold text-accent"
+        >
+          {username.slice(0, 2).toUpperCase()}
+        </span>
+        <span className="hidden max-w-32 truncate text-[12px] text-text sm:inline">
+          {username}
+        </span>
+      </button>
+
+      {open && (
+        <>
+          {/* Backdrop closes the menu on any outside click. */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden />
+          <div
+            role="menu"
+            aria-label="Account menu"
+            className="panel absolute right-0 top-[calc(100%+8px)] z-50 w-64 p-3"
+          >
+            <div className="mb-2 flex items-center gap-2.5 border-b border-border/60 pb-2.5">
+              <span
+                aria-hidden
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-surface-3/60 text-[12px] font-semibold text-accent"
+              >
+                {username.slice(0, 2).toUpperCase()}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-[13px] font-semibold text-text">{username}</div>
+                <div className="text-[11px] text-faint">Signed in via HttpOnly cookie</div>
+              </div>
+            </div>
+            <Link
+              to="/app/settings"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 rounded-quiet px-2 py-2 text-[13px] text-muted transition-colors hover:bg-surface-3/60 hover:text-text"
+            >
+              <Settings size={15} aria-hidden />
+              Account &amp; password
+            </Link>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="sign-out-button"
+              onClick={() => {
+                setOpen(false);
+                onSignOut();
+              }}
+              className="flex w-full items-center gap-2 rounded-quiet px-2 py-2 text-[13px] text-muted transition-colors hover:bg-surface-3/60 hover:text-text"
+            >
+              <LogOut size={15} aria-hidden />
+              Sign out
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
