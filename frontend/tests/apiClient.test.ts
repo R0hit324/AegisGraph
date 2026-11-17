@@ -70,13 +70,15 @@ describe("request", () => {
     expect((error as ApiError).message).toContain("Could not reach the backend");
   });
 
-  it("does not send credentials with requests", async () => {
+  it("sends credentials so the HttpOnly session cookie rides along", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await request<unknown>("/api/v1/health");
     const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(init.credentials).toBe("omit");
+    // Phase 2 sessions live in an HttpOnly cookie that JavaScript can never
+    // read; the browser only attaches it when credentials are included.
+    expect(init.credentials).toBe("include");
   });
 });

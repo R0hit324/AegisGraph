@@ -1,6 +1,18 @@
 /** Basic presentational building blocks shared across pages. */
 
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import {
+  Children,
+  createContext,
+  isValidElement,
+  useCallback,
+  useState,
+} from "react";
+import type {
+  InputHTMLAttributes,
+  ReactElement,
+  ReactNode,
+  SelectHTMLAttributes,
+} from "react";
 
 /** Shared control styling — border, surface and focus affordance only. */
 export const CONTROL_CLASSES =
@@ -95,14 +107,16 @@ const BADGE_TONES: Record<BadgeTone, string> = {
 
 export function Badge({
   tone = "neutral",
+  className = "",
   children,
 }: {
   tone?: BadgeTone;
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-quiet border px-2 py-0.5 text-[11px] font-medium ${BADGE_TONES[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-quiet border px-2 py-0.5 text-[11px] font-medium ${BADGE_TONES[tone]} ${className}`}
     >
       {children}
     </span>
@@ -111,6 +125,7 @@ export function Badge({
 
 export function Button({
   variant = "primary",
+  size = "medium",
   children,
   onClick,
   type = "button",
@@ -118,7 +133,8 @@ export function Button({
   className = "",
   title,
 }: {
-  variant?: "primary" | "ghost";
+  variant?: "primary" | "ghost" | "outline";
+  size?: "small" | "medium";
   children: ReactNode;
   onClick?: () => void;
   type?: "button" | "submit";
@@ -128,17 +144,20 @@ export function Button({
 }) {
   const base =
     "inline-flex items-center justify-center gap-2 rounded-quiet px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  const sizeClasses = size === "small" ? "px-2.5 py-1 text-[12px]" : "";
   const styles =
     variant === "primary"
       ? "bg-accent text-bg hover:bg-accent/85 font-semibold"
-      : "border border-border text-text hover:border-border-strong hover:bg-surface-3/50";
+      : variant === "outline"
+        ? "border border-border-strong bg-surface-2 text-text hover:bg-surface-3/50"
+        : "border border-border text-text hover:border-border-strong hover:bg-surface-3/50";
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`${base} ${styles} ${className}`}
+      className={`${base} ${sizeClasses} ${styles} ${className}`}
     >
       {children}
     </button>
@@ -176,11 +195,13 @@ export function EmptyState({
   icon,
   title,
   children,
+  description,
   action,
 }: {
   icon: ReactNode;
   title: string;
-  children: ReactNode;
+  children?: ReactNode;
+  description?: string;
   action?: ReactNode;
 }) {
   return (
@@ -189,7 +210,11 @@ export function EmptyState({
         {icon}
       </div>
       <h3 className="text-base font-semibold tracking-tight text-text">{title}</h3>
-      <div className="max-w-md text-[13px] leading-relaxed text-muted">{children}</div>
+      {children !== undefined ? (
+        <div className="max-w-md text-[13px] leading-relaxed text-muted">{children}</div>
+      ) : description !== undefined ? (
+        <div className="max-w-md text-[13px] leading-relaxed text-muted">{description}</div>
+      ) : null}
       {action}
     </div>
   );
@@ -233,4 +258,129 @@ export function KeyValueRow({ label, value }: { label: string; value: ReactNode 
       <span className="text-[13px] font-medium text-text">{value}</span>
     </div>
   );
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+/**
+ * Lightweight accessible tab control built on the token system.
+ *
+ * `<Tabs>` collects its `<Tab value label>{children}</Tab>` children and
+ * renders the tab strip plus the active tab's panel. Controlled usage: pass
+ * `value` + `onValueChange`; uncontrolled: pass `defaultValue` only.
+ */
+interface TabsContextValue {
+  active: string;
+  select: (value: string) => void;
+}
+
+const TabsContext = createContext<TabsContextValue | null>(null);
+
+interface TabDescriptor {
+  value: string;
+  label: string;
+  children?: ReactNode;
+}
+
+export function Tabs({
+  defaultValue,
+  value,
+  onValueChange,
+  className = "",
+  children,
+}: {
+  defaultValue?: string;
+  value?: string;
+  onValueChange?: (value: string) => void;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [internal, setInternal] = useState(defaultValue ?? "");
+  const active = value !== undefined ? value : internal;
+  const select = useCallback(
+    (next: string) => {
+      if (value === undefined) setInternal(next);
+      onValueChange?.(next);
+    },
+    [value, onValueChange],
+  );
+
+  const items: Array<ReactElement<TabDescriptor>> = [];
+  Children.forEach(children, (child) => {
+    if (isValidElement(child)) {
+      const props = child.props as Partial<TabDescriptor>;
+      if (typeof props.value === "string") {
+        items.push(child as ReactElement<TabDescriptor>);
+      }
+    }
+  });
+  const activeItem = items.find((item) => item.props.value === active);
+
+  return (
+    <TabsContext.Provider value={{ active, select }}>
+      <div
+        role="tablist"
+        aria-label="Section tabs"
+        className={`flex flex-wrap items-center gap-1.5 border-b border-border pb-2 ${className}`}
+      >
+        {items.map((item) => {
+          const selected = item.props.value === active;
+          return (
+            <button
+              key={item.props.value}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => select(item.props.value)}
+              className={`rounded-quiet border px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                selected
+                  ? "border-accent-dim bg-accent/10 text-accent"
+                  : "border-border bg-surface-2 text-muted hover:border-border-strong hover:text-text"
+              }`}
+            >
+              {item.props.label}
+            </button>
+          );
+        })}
+      </div>
+      <div role="tabpanel" className="mt-4">
+        {activeItem?.props.children}
+      </div>
+    </TabsContext.Provider>
+  );
+}
+
+/**
+ * Declares one tab of a `<Tabs>` group. It renders nothing itself — `<Tabs>`
+ * reads its `value`, `label` and `children` props to build the strip and the
+ * active panel.
+ */
+export function Tab(_props: TabDescriptor): null {
+  return null;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+/** Thin semantic wrappers around native table elements. */
+
+export function Table({ className = "", children }: { className?: string; children: ReactNode }) {
+  return (
+    <div className={`overflow-x-auto ${className}`}>
+      <table className="w-full text-[13px]">{children}</table>
+    </div>
+  );
+}
+
+export function TableHeader({ children }: { children: ReactNode }) {
+  return <thead>{children}</thead>;
+}
+
+export function TableBody({ children }: { children: ReactNode }) {
+  return <tbody>{children}</tbody>;
+}
+
+export function TableRow({ className = "", children }: { className?: string; children: ReactNode }) {
+  return <tr className={`border-b border-border/60 ${className}`}>{children}</tr>;
+}
+
+export function TableCell({ className = "", children }: { className?: string; children: ReactNode }) {
+  return <td className={`px-3 py-2 align-top ${className}`}>{children}</td>;
 }

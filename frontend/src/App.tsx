@@ -96,7 +96,7 @@ export function AppRoutes() {
             </RequireAuth>
           }
         >
-          <Route index element={<Navigate to "/app/overview" replace />} />
+          <Route index element={<Navigate to="/app/overview" replace />} />
           <Route path="overview" element={<OverviewPage />} />
           <Route path="scopes" element={<ScopesPage />} />
           <Route path="organization" element={<OrganizationPage />} />

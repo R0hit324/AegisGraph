@@ -73,17 +73,22 @@ export function OrganizationPage() {
   const loadOrgs = useCallback(() => listOrganizations(), []);
   const orgs = useResource(loadOrgs, 0, describeAuthError);
 
+  // Default to the first organization during render — most users belong to
+  // exactly one, and an explicit pick from the picker always wins.
+  const fallbackOrgId = (orgs.data ?? [])[0]?.id ?? null;
+  const activeOrgId = selectedOrgId ?? fallbackOrgId;
+
   const loadMembers = useCallback(
     () =>
-      selectedOrgId === null
+      activeOrgId === null
         ? Promise.resolve<OrganizationMember[]>([])
-        : listMembers(selectedOrgId),
-    [selectedOrgId],
+        : listMembers(activeOrgId),
+    [activeOrgId],
   );
 
   const members = useResource(
     loadMembers,
-    `${selectedOrgId ?? "none"}#${reloadKey}`,
+    `${activeOrgId ?? "none"}#${reloadKey}`,
     describeAuthError,
   );
 
@@ -99,15 +104,15 @@ export function OrganizationPage() {
 
   const loadAudit = useCallback(
     () =>
-      !canViewAudit || selectedOrgId === null
+      !canViewAudit || activeOrgId === null
         ? Promise.resolve<AuditEntry[]>([])
-        : listAuditEntries(selectedOrgId),
-    [canViewAudit, selectedOrgId],
+        : listAuditEntries(activeOrgId),
+    [canViewAudit, activeOrgId],
   );
 
   const audit = useResource(
     loadAudit,
-    `${selectedOrgId ?? "none"}#${canViewAudit}#${reloadKey}`,
+    `${activeOrgId ?? "none"}#${canViewAudit}#${reloadKey}`,
     describeAuthError,
   );
 
@@ -115,30 +120,30 @@ export function OrganizationPage() {
 
   const handleRoleChange = useCallback(
     async (member: OrganizationMember, nextRole: OrganizationRole) => {
-      if (selectedOrgId === null || member.role === nextRole) return;
+      if (activeOrgId === null || member.role === nextRole) return;
       setActionProblem(null);
       try {
-        await assignRole(selectedOrgId, member.user_id, nextRole);
+        await assignRole(activeOrgId, member.user_id, nextRole);
         setReloadKey((k) => k + 1);
       } catch (cause: unknown) {
         setActionProblem(describeAuthError(cause));
       }
     },
-    [selectedOrgId],
+    [activeOrgId],
   );
 
   const handleRemove = useCallback(
     async (member: OrganizationMember) => {
-      if (selectedOrgId === null) return;
+      if (activeOrgId === null) return;
       setActionProblem(null);
       try {
-        await removeMember(selectedOrgId, member.user_id);
+        await removeMember(activeOrgId, member.user_id);
         setReloadKey((k) => k + 1);
       } catch (cause: unknown) {
         setActionProblem(describeAuthError(cause));
       }
     },
-    [selectedOrgId],
+    [activeOrgId],
   );
 
   const memberList = members.loading || members.error !== null ? [] : (members.data ?? []);
@@ -155,7 +160,7 @@ export function OrganizationPage() {
 
       <OrgPicker
         orgs={orgs.data ?? []}
-        selectedId={selectedOrgId}
+        selectedId={activeOrgId}
         loading={orgs.loading}
         onSelect={(id) => {
           setSelectedOrgId(id);
@@ -263,7 +268,7 @@ export function OrganizationPage() {
           </ul>
         )}
 
-        {!canViewAudit && memberList.length > 0 && selectedOrgId !== null && (
+        {!canViewAudit && memberList.length > 0 && activeOrgId !== null && (
           <p className="mt-4 text-[12px] text-faint">
             Only members with the admin or owner role can change roles or remove members.
           </p>
@@ -273,7 +278,7 @@ export function OrganizationPage() {
       <Panel
         title="Activity"
         description={
-          canViewAudit && selectedOrgId !== null
+          canViewAudit && activeOrgId !== null
             ? "Security events recorded for this organization — no IP addresses, agents or secrets."
             : "The activity trail is restricted to organization admins and owners."
         }

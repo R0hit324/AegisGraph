@@ -5,6 +5,16 @@ import { AppRoutes } from "@/App";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/services/apiClient";
 
+// The /app routes re-check the session against the backend; isolate that.
+const sessionMock = vi.hoisted(() => ({
+  getSession: vi.fn(),
+  login: vi.fn(),
+  register: vi.fn(),
+  logout: vi.fn().mockResolvedValue({ detail: "ok" }),
+  changePassword: vi.fn(),
+}));
+vi.mock("@/services/sessionService", () => sessionMock);
+
 const getHealthMock = vi.hoisted(() => vi.fn());
 vi.mock("@/services/healthService", () => ({ getHealth: getHealthMock }));
 
@@ -19,6 +29,16 @@ const health = {
 
 beforeEach(() => {
   getHealthMock.mockReset();
+  sessionMock.getSession.mockResolvedValue({
+    id: 7,
+    username: "tester",
+    email: null,
+    is_active: true,
+    is_superuser: false,
+    is_verified: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
 });
 afterEach(() => {
   vi.useRealTimers();

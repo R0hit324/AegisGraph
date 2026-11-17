@@ -1,8 +1,31 @@
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "@/App";
 import { NAV_ITEMS } from "@/app/navigation";
+
+// The /app routes re-check the session against the backend; isolate that.
+const sessionMock = vi.hoisted(() => ({
+  getSession: vi.fn(),
+  login: vi.fn(),
+  register: vi.fn(),
+  logout: vi.fn().mockResolvedValue({ detail: "ok" }),
+  changePassword: vi.fn(),
+}));
+vi.mock("@/services/sessionService", () => sessionMock);
+
+beforeEach(() => {
+  sessionMock.getSession.mockResolvedValue({
+    id: 7,
+    username: "tester",
+    email: null,
+    is_active: true,
+    is_superuser: false,
+    is_verified: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+});
 
 vi.mock("@/services/healthService", () => ({
   getHealth: vi.fn().mockResolvedValue({

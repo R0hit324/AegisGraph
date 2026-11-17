@@ -1,4 +1,4 @@
-"""API v1. All Phase 1 routes live under the /api/v1 prefix."""
+"""API v1 package. All versioned routes live under the /api/v1 prefix."""
 
 from fastapi import APIRouter
 

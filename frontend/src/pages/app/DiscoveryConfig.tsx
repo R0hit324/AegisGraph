@@ -1,138 +1,139 @@
-/** Phase 3: Discovery Configuration.
+/**
+ * Phase 3: Discovery Configuration.
+ *
+ * Lets an authorized user select an organization, pick one of its *authorized
+ * scopes* (loaded from `GET /organizations/{id}/scopes` — never invented) and
+ * start a discovery job within it via `POST /api/v1/discovery/jobs`.
+ *
+ * Scope domain patterns are re-validated client-side with the same rules the
+ * backend applies; the server remains the authority.
+ */
 
-Allows authorized users to select an authorized scope and configure
-discovery modules before starting a discovery job.
-*/
-
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Crosshair, Radar, Settings2 } from "lucide-react";
+import { OrgPicker } from "@/pages/app/OrgPicker";
+import { useResource } from "@/hooks/useResource";
 import {
+  Badge,
   Button,
   EmptyState,
   ErrorNotice,
   Field,
   Panel,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  SelectInput,
   Spinner,
-  Input,
-  Form,
-  FormControl,
+  TextInput,
 } from "@/components/ui/Primitives";
-import { useSession } from "@/app/useSession";
-import { listScopes, listOrganizations } from "@/services/organizationsService";
-import { isValidDomainPattern } from "@/services/discoveryService";
+import { isValidDomainPattern, startDiscoveryJob } from "@/services/discoveryService";
+import { listOrganizations, listScopes } from "@/services/organizationsService";
 import { describeAuthError } from "@/app/authErrors";
+import type { DiscoveryJobCreate } from "@/schemas/discovery";
+import type { Scope } from "@/types/api";
+
+const PORT_PROFILES: Array<{ value: string; label: string }> = [
+  { value: "standard", label: "Standard (common ports 1-1000)" },
+  { value: "limited", label: "Limited (common ports only)" },
+  { value: "custom", label: "Custom (user-defined)" },
+];
 
 export function DiscoveryConfig() {
-  const session = useSession();
-  const myUserId = session.user?.id ?? -1;
+  const navigate = useNavigate();
 
-  // State
   const [selectedOrgId, setSelectedOrgId] = useState<number | null>(null);
   const [selectedScopeId, setSelectedScopeId] = useState<number | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
   const [formBusy, setFormBusy] = useState(false);
   const [formProblem, setFormProblem] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
-  // Organisations
-  const [orgs, setOrgs] = useState<Array<{ id: number; name: string }>>([]);
-  const loadOrgs = useCallback(async () => {
-    try {
-      const { listOrganizations } = await import("@/services/organizationsService");
-      const data = await listOrganizations();
-      setOrgs(data.data ?? []);
-    } catch (e) {
-      setOrgs([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadOrgs();
-  }, [loadOrgs]);
-
-  // Scopes - load when org changes
-  const [scopes, setScopes] = useState<Array<{ id: number; name: string; domain_pattern: string }>>([]);
-  const loadScopes = useCallback(async (orgId: number) => {
-    try {
-      const { listScopes } = await import("@/services/organizationsService");
-      const data = await listScopes(orgId);
-      setScopes(data.data ?? []);
-    } catch (e) {
-      setScopes([]);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (selectedOrgId !== null) {
-      loadScopes(selectedOrgId);
-    }
-  }, [selectedOrgId, loadScopes]);
-
-  // Job config form state
   const [jobName, setJobName] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [concurrencyLimit, setConcurrencyLimit] = useState("10");
   const [portProfile, setPortProfile] = useState("standard");
 
-  // Validation
-  const handleOrgSelect = useCallback(
-    (orgId: number | null) => {
-      setSelectedOrgId(orgId);
-      setSelectedScopeId(null);
-      setScopes([]);
-      setFormProblem(null);
-    },
-    [],
-  );
+  const loadOrgs = useCallback(() => listOrganizations(), []);
+  const orgs = useResource(loadOrgs, 0, describeAuthError);
 
-  // Scope validation
-  const handleScopeChange = useCallback(
-    (domain: string) => {
-      if (!isValidDomainPattern(domain)) {
-        setFormProblem(
-          "Invalid domain pattern. Must be a valid domain or subdomain pattern (e.g., example.com or *.example.com). Reserved domains (localhost, local, invalid, test, example) are not allowed.",
-        );
-        return false;
+  const loadScopes = useCallback(
+    () =>
+      selectedOrgId === null
+        ? Promise.resolve<Scope[]>([])
+        : listScopes(selectedOrgId),
+    [selectedOrgId],
+  );
+  const scopeKey = `${selectedOrgId ?? "none"}#${reloadKey}`;
+  const scopes = useResource(loadScopes, scopeKey, describeAuthError);
+
+  const activeScopes = useMemo(
+    () =>
+      scopes.loading || scopes.error !== null
+        ? []
+        : (scopes.data ?? []).filter((s) => s.is_active),
+    [scopes.loading, scopes.error, scopes.data],
+  );
+  const selectedScope = activeScopes.find((s) => s.id === selectedScopeId) ?? null;
+
+  const handleOrgSelect = useCallback((id: number) => {
+    setSelectedOrgId(id);
+    setSelectedScopeId(null);
+    setFormProblem(null);
+  }, []);
+
+  const handleScopeSelect = useCallback(
+    (value: string) => {
+      const id = value === "" ? null : Number.parseInt(value, 10);
+      setSelectedScopeId(id);
+      setFormProblem(null);
+      if (id !== null) {
+        const scope = activeScopes.find((s) => s.id === id);
+        if (scope && !isValidDomainPattern(scope.domain_pattern)) {
+          setFormProblem(
+            "This scope's domain pattern is not valid (e.g., example.com or *.example.com). Reserved domains and bare IPs cannot be authorized.",
+          );
+        }
       }
-      setFormProblem(null);
-      return true;
     },
-    [],
+    [activeScopes],
   );
 
-  // Form submission
-  const handleCreate = useCallback(
+  const handleStart = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       if (formBusy || selectedOrgId === null || selectedScopeId === null) return;
 
-      // Validate scope domain pattern
-      if (!handleScopeChange(jobName)) return;
+      if (jobName.trim().length < 1) {
+        setFormProblem("Give the discovery job a name.");
+        return;
+      }
+      const concurrency = Number.parseInt(concurrencyLimit, 10);
+      if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 100) {
+        setFormProblem("Concurrency limit must be an integer between 1 and 100.");
+        return;
+      }
+      const scope = activeScopes.find((s) => s.id === selectedScopeId);
+      if (scope === undefined || !isValidDomainPattern(scope.domain_pattern)) {
+        setFormProblem(
+          "Select an authorized scope with a valid domain pattern (e.g., example.com or *.example.com).",
+        );
+        return;
+      }
 
       setFormBusy(true);
       setFormProblem(null);
-      setNotice(null);
-
       try {
-        const { startDiscoveryJob } = await import("@/services/discoveryService");
-        const payload = {
-          name: jobName,
-          description: jobDescription || undefined,
+        const payload: DiscoveryJobCreate = {
+          name: jobName.trim(),
           organization_id: selectedOrgId,
           scope_id: selectedScopeId,
           config: JSON.stringify({
-            concurrency_limit: parseInt(concurrencyLimit, 10),
+            concurrency_limit: concurrency,
             port_profile: portProfile,
           }),
         };
+        if (jobDescription.trim() !== "") payload.description = jobDescription.trim();
         await startDiscoveryJob(payload);
-        setFormOpen(false);
-        setNotice(`Discovery job "${jobName}" started successfully.`);
-        setReloadKey((k) => k + 1);
+        navigate("/app/discovery/jobs");
       } catch (cause: unknown) {
         setFormProblem(describeAuthError(cause));
       } finally {
@@ -147,18 +148,10 @@ export function DiscoveryConfig() {
       jobDescription,
       concurrencyLimit,
       portProfile,
-      handleScopeChange,
-      describeAuthError,
+      activeScopes,
+      navigate,
     ],
   );
-
-  // Initialize orgs
-  useEffect(() => {
-    loadOrgs();
-  }, [loadOrgs]);
-
-  // Form problem shown when collapsed
-  const showProblem = formProblem !== null && formOpen === false;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-5">
@@ -172,284 +165,195 @@ export function DiscoveryConfig() {
         </p>
       </div>
 
-      {/* Org + Scope selector */}
-      <Panel
-        title="Authorization"
-        description="Select an organization and an authorized scope"
-      >
-        {selectedOrgId === null && orgs.length === 0 && (
-          <div className="text-muted text-[13px]">
-            No organizations found. Create or join an organization first.
-          </div>
-        )}
-        {selectedOrgId === null && orgs.length > 0 && (
-          <div className="flex items-center gap-2.5 py-3 text-[13px] text-muted">
-            <Select
-              onValueChange={handleOrgSelect}
-              placeholder="Select organization"
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select organization" />
-              </SelectTrigger>
-              <SelectContent>
-                {orgs.map((org) => (
-                  <SelectItem key={org.id} value={org.id}>
-                    {org.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        {selectedOrgId !== null && (
-          <div className="flex items-center gap-2.5 py-3 text-[13px] text-muted">
-            <Badge tone="neutral">
-              {orgs.find((o) => o.id === selectedOrgId)?.name ?? "Unknown"}
-            </Badge>
-          </div>
+      <Panel title="Authorization" description="Select an organization and an authorized scope">
+        <OrgPicker
+          orgs={orgs.data ?? []}
+          selectedId={selectedOrgId}
+          loading={orgs.loading}
+          onSelect={handleOrgSelect}
+        />
 
-          {/* Scope selector */}
-          {selectedOrgId !== null && (
-            <div className="mt-3">
-              <h2 className="text-[12px] uppercase tracking-widest text-faint mb-2">
-                Authorized Scope
-              </h2>
-              {selectedScopeId !== null && (
-                <div className="flex items-center gap-3">
-                  <Badge tone="neutral">
-                    {scopes.find((s) => s.id === selectedScopeId)?.domain_pattern ?? "—"}
-                  </Badge>
-                  <span className="text-[11px] text-faint">
-                    ({scopes.find((s) => s.id === selectedScopeId)?.name ?? "—"})
-                  </span>
-                </div>
-              )}
-              {selectedScopeId === null && scopes.length > 0 && (
-                <Select
-                  onValueChange={(val: string) => {
-                    const id = parseInt(val, 10);
-                    setSelectedScopeId(id);
-                    // Validate the domain pattern
-                    const scope = scopes.find((s) => s.id === id);
-                    if (scope) {
-                      handleScopeChange(scope.domain_pattern);
-                    }
-                  }}
-                  placeholder="Select a scope"
-                >
-                  <SelectTrigger>
-                    <SelectValue notchedPlaceholder="Select a scope" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {scopes.map((scope) => (
-                      <SelectItem key={scope.id} value={scope.id}>
-                        {scope.domain_pattern}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-
-              {/* Manual scope entry */}
-              {selectedScopeId === null && scopes.length === 0 && (
-                <Form onSubmit={handleCreate} className="mt-3">
-                  <Field
-                    label="Scope domain pattern"
-                    htmlFor="scope-pattern-manual"
-                  >
-                    <Input
-                      id="scope-pattern-manual"
-                      type="text"
-                      placeholder="example.com or *.example.com"
-                      onChange={(e) =>
-                        handleScopeChange(e.target.value.trim())
-                      }
-                      disabled={formBusy}
-                    />
-                  </Field>
-                  <div>
-                    <Button type="submit" disabled={formBusy}>
-                      {formBusy ? (
-                        <>
-                          <Spinner label="Validating" /> Authorizing
-                        </>
-                      ) : ("Authorize and Start Discovery"))
-                    </Button>
-                  </div>
-                </Form>
-              )}
-            </div>
-          )}
-        )}
-
-        {/* Form when no org selected but orgs exist */}
-        {selectedOrgId === null && orgs.length > 0 && formOpen && (
-          <form onSubmit={handleCreate} className="mt-5">
-            <Field
-              label="Scope domain pattern"
-              htmlFor="scope-pattern-org-select"
-            >
-              <Input
-                id="scope-pattern-org-select"
-                type="text"
-                placeholder="example.com or *.example.com"
-                onChange={(e) =>
-                  handleScopeChange(e.target.value.trim())
-                }
-                disabled={formBusy}
-              />
-            </Field>
-            <div>
-              <Button type="submit" disabled={formBusy}>
-                {formBusy ? (
-                  <>
-                    <Spinner label="Validating" /> Authorizing
-                  </>
-                ) : ("Authorize and Start Discovery"))
-              </Button>
-            </div>
-          </form>
-        )}
-
-        {showProblem && (
-          <ErrorNotice title={formProblem} onRetry={() => setFormProblem(null)} />
-        )}
-        {notice !== null && (
+        {selectedOrgId !== null && scopes.loading && (
           <div
+            className="mt-4 flex items-center gap-2.5 text-[13px] text-muted"
             role="status"
-            className="rounded-quiet border border-ok/40 bg-ok/10 px-4 py-3 text-[13px] text-ok"
           >
-            {notice}
+            <Spinner label="Loading scopes" />
+            Loading authorized scopes…
+          </div>
+        )}
+
+        {selectedOrgId !== null && !scopes.loading && scopes.error !== null && (
+          <div className="mt-4">
+            <ErrorNotice
+              title="Scopes could not be loaded"
+              detail={scopes.error}
+              onRetry={() => setReloadKey((k) => k + 1)}
+            />
+          </div>
+        )}
+
+        {selectedOrgId !== null && !scopes.loading && scopes.error === null && (
+          <div className="mt-4">
+            <h2 className="mb-2 text-[12px] uppercase tracking-widest text-faint">
+              Authorized Scope
+            </h2>
+            <Field
+              label="Scope"
+              htmlFor="discovery-scope"
+              hint="Only scopes authorized on the Scopes page can be selected."
+            >
+              <SelectInput
+                id="discovery-scope"
+                value={selectedScopeId === null ? "" : String(selectedScopeId)}
+                onChange={(e) => handleScopeSelect(e.target.value)}
+              >
+                <option value="">Select a scope</option>
+                {activeScopes.map((scope) => (
+                  <option key={scope.id} value={String(scope.id)}>
+                    {scope.domain_pattern} — {scope.name}
+                  </option>
+                ))}
+              </SelectInput>
+            </Field>
+
+            {selectedScope !== null && (
+              <div className="mt-2 flex flex-wrap items-center gap-2.5 text-[13px] text-muted">
+                <Badge tone="neutral">
+                  <Crosshair size={11} aria-hidden /> {selectedScope.domain_pattern}
+                </Badge>
+                <span className="text-[11px] text-faint">{selectedScope.name}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {formProblem !== null && (
+          <div className="mt-4">
+            <ErrorNotice title={formProblem} onRetry={() => setFormProblem(null)} />
           </div>
         )}
       </Panel>
 
-      {/* Discovery modules configuration */}
-      {selectedOrgId !== null && selectedScopeId !== null && (
-        <Panel
-          title="Discovery Configuration"
-          description="Configure discovery module settings"
-        >
-          <Form
-            onSubmit={handleCreate}
-            className="mt-4 space-y-4"
-            data-testid="discovery-config-form"
+      {selectedOrgId !== null &&
+        selectedScopeId !== null &&
+        !scopes.loading &&
+        scopes.error === null && (
+          <Panel
+            title="Discovery Configuration"
+            description="Configure discovery module settings"
           >
-            <Field
-              label="Job name"
-              htmlFor="job-name"
+            <form
+              onSubmit={handleStart}
+              data-testid="discovery-config-form"
+              className="flex flex-col gap-4"
             >
-              <Input
-                id="job-name"
-                type="text"
-                value={jobName}
-                onChange={(e) => setJobName(e.target.value.trim())}
-                placeholder="e.g., Subdomain Enumeration Run"
-                disabled={formBusy}
-                required
-              />
-            </Field>
+              <Field label="Job name" htmlFor="job-name">
+                <TextInput
+                  id="job-name"
+                  name="job_name"
+                  required
+                  maxLength={200}
+                  value={jobName}
+                  onChange={(e) => setJobName(e.target.value)}
+                  placeholder="e.g., Subdomain enumeration run"
+                  disabled={formBusy}
+                />
+              </Field>
 
-            <Field
-              label="Description (optional)"
-              htmlFor="job-description"
-            >
-              <Input
-                id="job-description"
-                type="text"
-                value={jobDescription}
-                onChange={(e) => setJobDescription(e.target.value.trim())}
-                placeholder="Optional description of the discovery run"
-                disabled={formBusy}
-              />
-            </Field>
+              <Field label="Description (optional)" htmlFor="job-description">
+                <TextInput
+                  id="job-description"
+                  name="job_description"
+                  maxLength={500}
+                  value={jobDescription}
+                  onChange={(e) => setJobDescription(e.target.value)}
+                  placeholder="Optional description of the discovery run"
+                  disabled={formBusy}
+                />
+              </Field>
 
-            <Field
-              label="Concurrency limit"
-              htmlFor="concurrency-limit"
-            >
-              <Input
-                id="concurrency-limit"
-                type="number"
-                value={concurrencyLimit}
-                onChange={(e) => setConcurrencyLimit(e.target.value.trim())}
-                min={1}
-                max={100}
-                step={1}
-                placeholder="10"
-                disabled={formBusy}
-              />
-              <p className="text-[11px] text-faint ml-2">
-                Max concurrent network operations. Default: 10.
-              </p>
-            </Field>
-
-            <Field
-              label="Port profile"
-              htmlFor="port-profile"
-            >
-              <Select
-                onValueChange={(val: string) => setPortProfile(val)}
-                disabled={formBusy}
+              <Field
+                label="Concurrency limit"
+                htmlFor="concurrency-limit"
+                hint="Max concurrent network operations (1-100). Default: 10."
               >
-                <SelectTrigger>
-                  <SelectValue notchedPlaceholder="Select port profile" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="standard">Standard (common ports 1-1000)</SelectItem>
-                  <SelectItem value="limited">Limited (common ports only)</SelectItem>
-                  <SelectItem value="custom">Custom (user-defined)</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
+                <TextInput
+                  id="concurrency-limit"
+                  name="concurrency_limit"
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={concurrencyLimit}
+                  onChange={(e) => setConcurrencyLimit(e.target.value)}
+                  disabled={formBusy}
+                />
+              </Field>
 
-            <div>
-              <Button type="submit" disabled={formBusy}>
-                {formBusy ? (
-                  <>
-                    <Spinner label="Starting discovery" /> Starting…
-                  </>
-                ) : (
-                  "Start Discovery Job"
-                )}
-              </Button>
+              <Field label="Port profile" htmlFor="port-profile">
+                <SelectInput
+                  id="port-profile"
+                  value={portProfile}
+                  onChange={(e) => setPortProfile(e.target.value)}
+                  disabled={formBusy}
+                >
+                  {PORT_PROFILES.map((p) => (
+                    <option key={p.value} value={p.value}>
+                      {p.label}
+                    </option>
+                  ))}
+                </SelectInput>
+              </Field>
+
+              <div>
+                <Button type="submit" disabled={formBusy}>
+                  {formBusy ? (
+                    <>
+                      <Spinner label="Starting discovery" /> Starting…
+                    </>
+                  ) : (
+                    <>
+                      <Radar size={14} aria-hidden /> Start Discovery Job
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
+
+            <div className="mt-4 rounded-quiet bg-surface-3/30 p-3 text-[11px] text-faint">
+              <strong>Safety controls:</strong> All targets pass centralized authorization
+              and address-safety validation before connection. SSRF/DNS rebinding protection
+              is enforced. Rate limits and timeouts are applied. Assets discovered outside
+              the original authorization scope are recorded as out-of-scope candidates only.
             </div>
-          </Form>
+          </Panel>
+        )}
 
-          {/* Safety notice */}
-          <div className="mt-3 p-3 bg-surface-3/30 rounded-quiet text-[11px] text-faint">
-            <strong>Safety controls:</strong> All targets pass centralized authorization
-            and address-safety validation before connection. SSRF/DNS rebinding protection
-            enforced. Rate limits and timeouts applied. Discovered assets outside the
-            original authorization scope are recorded as out-of-scope candidates only.
-          </div>
-        </Panel>
+      {selectedOrgId !== null && !scopes.loading && scopes.error === null && activeScopes.length === 0 && (
+        <EmptyState
+          icon={<Crosshair size={24} aria-hidden />}
+          title="No authorized scopes yet"
+          description="Discovery only runs inside an authorized scope. Authorize a domain on the Scopes page first, then come back to configure the job."
+          action={
+            <Button variant="outline" onClick={() => navigate("/app/scopes")}>
+              Go to Scopes
+            </Button>
+          }
+        />
       )}
 
-      {/* Can't configure without org+scope */}
       {selectedOrgId === null && (
         <EmptyState
-          icon={<Badge tone="neutral" className="text-2xl"}>⚙️</Badge>
+          icon={<Settings2 size={24} aria-hidden />}
           title="Select an organization and scope"
-          description={
-            "Choose an organization and an authorized scope to configure discovery. " +
-            "Scopes define the exact boundary within which discovery may operate. " +
-            "Discovery results outside the scope are recorded but not actively scanned."
-        }>
-        </EmptyState>
+          description="Choose an organization and one of its authorized scopes to configure discovery. Scopes define the exact boundary within which discovery may operate — results outside it are recorded but not actively scanned."
+        />
       )}
 
-      {selectedOrgId !== null && selectedScopeId === null && (
-        <EmptyState
-          icon={<Badge tone="neutral" className="text-2xl"}>📛</Badge>
-          title="Select an authorized scope"
-          description={
-            "You must select an authorized scope (domain pattern) before starting discovery. " +
-            "Scopes are validated against reserved domains and IP patterns. " +
-            "Discovery never runs outside the authorized boundary."
-        }>
-        </EmptyState>
-      )}
+      <p className="text-[12px] text-faint">
+        Scopes are managed on the <Link to="/app/scopes" className="text-accent hover:underline">Scopes page</Link>.
+      </p>
     </div>
   );
 }

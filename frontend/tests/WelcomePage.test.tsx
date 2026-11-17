@@ -1,8 +1,31 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { AppRoutes } from "@/App";
+
+// The /app routes re-check the session against the backend; isolate that.
+const sessionMock = vi.hoisted(() => ({
+  getSession: vi.fn(),
+  login: vi.fn(),
+  register: vi.fn(),
+  logout: vi.fn().mockResolvedValue({ detail: "ok" }),
+  changePassword: vi.fn(),
+}));
+vi.mock("@/services/sessionService", () => sessionMock);
+
+beforeEach(() => {
+  sessionMock.getSession.mockResolvedValue({
+    id: 7,
+    username: "tester",
+    email: null,
+    is_active: true,
+    is_superuser: false,
+    is_verified: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+});
 
 // AppShell polls the backend through the health service; keep it isolated.
 vi.mock("@/services/healthService", () => ({

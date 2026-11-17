@@ -12,8 +12,11 @@ This migration adds the following infrastructure:
 The app_metadata table from Phase 1 is preserved unchanged.
 """
 
-from alembic import op
+from collections.abc import Sequence
+
 import sqlalchemy as sa
+from alembic import op
+from sqlalchemy import ForeignKey
 
 # revision identifiers, used by Alembic.
 revision: str = "0002_phase2_auth_orgs_scopes"
@@ -29,7 +32,7 @@ def upgrade() -> None:
         "users",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("username", sa.String(length=191), unique=True, nullable=False, index=True),
-        sa.Column("email", sa.String(length=254), unique=True, nullable=True, index=True),
+        sa.Column("email", sa.String(length=254), nullable=True),
         sa.Column("hashed_password", sa.String(length=128), nullable=False),
         sa.Column("is_active", sa.Boolean(), default=True, nullable=False),
         sa.Column("is_superuser", sa.Boolean(), default=False, nullable=False),
@@ -85,7 +88,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("name", sa.String(length=200), unique=True, nullable=False, index=True),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("domain_pattern", sa.String(length=255), nullable=False, index=True),
+        sa.Column("domain_pattern", sa.String(length=255), nullable=False),
         sa.Column("is_active", sa.Boolean(), default=True, nullable=False),
         sa.Column("organization_id", sa.Integer(), nullable=False, index=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),

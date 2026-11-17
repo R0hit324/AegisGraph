@@ -49,22 +49,27 @@ export function ScopesPage() {
   const loadOrgs = useCallback(() => listOrganizations(), []);
   const orgs = useResource(loadOrgs, 0, describeAuthError);
 
+  // Default to the first organization during render — most users belong to
+  // exactly one, and an explicit pick from the picker always wins.
+  const fallbackOrgId = (orgs.data ?? [])[0]?.id ?? null;
+  const activeOrgId = selectedOrgId ?? fallbackOrgId;
+
   const loadScopes = useCallback(
     () =>
-      selectedOrgId === null
+      activeOrgId === null
         ? Promise.resolve<Scope[]>([])
-        : listScopes(selectedOrgId),
-    [selectedOrgId],
+        : listScopes(activeOrgId),
+    [activeOrgId],
   );
   const loadMembers = useCallback(
     () =>
-      selectedOrgId === null
+      activeOrgId === null
         ? Promise.resolve<OrganizationMember[]>([])
-        : listMembers(selectedOrgId),
-    [selectedOrgId],
+        : listMembers(activeOrgId),
+    [activeOrgId],
   );
 
-  const orgKey = `${selectedOrgId ?? "none"}#${reloadKey}`;
+  const orgKey = `${activeOrgId ?? "none"}#${reloadKey}`;
   const scopes = useResource(loadScopes, orgKey, describeAuthError);
   const members = useResource(loadMembers, orgKey, describeAuthError);
 
@@ -81,7 +86,7 @@ export function ScopesPage() {
   const handleCreate = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (formBusy || selectedOrgId === null) return;
+      if (formBusy || activeOrgId === null) return;
       const data = new FormData(event.currentTarget);
       const name = String(data.get("name") ?? "").trim();
       const domainPattern = String(data.get("domain_pattern") ?? "").trim();
@@ -117,7 +122,7 @@ export function ScopesPage() {
           domain_pattern: domainPattern,
         };
         if (description !== "") payload.description = description;
-        await createScope(selectedOrgId, payload);
+        await createScope(activeOrgId, payload);
         setFormOpen(false);
         setNotice(`Authorized “${domainPattern}”. Discovery itself arrives in Phase 3.`);
         setReloadKey((k) => k + 1);
@@ -127,14 +132,14 @@ export function ScopesPage() {
         setFormBusy(false);
       }
     },
-    [formBusy, selectedOrgId],
+    [formBusy, activeOrgId],
   );
 
   const handleDeactivate = useCallback(
     async (scope: Scope) => {
-      if (selectedOrgId === null) return;
+      if (activeOrgId === null) return;
       try {
-        await deleteScope(selectedOrgId, scope.id);
+        await deleteScope(activeOrgId, scope.id);
         setNotice(`“${scope.domain_pattern}” was deactivated.`);
         setReloadKey((k) => k + 1);
       } catch (cause: unknown) {
@@ -142,7 +147,7 @@ export function ScopesPage() {
         setFormProblem(describeAuthError(cause));
       }
     },
-    [selectedOrgId],
+    [activeOrgId],
   );
 
   const scopeList = scopes.loading || scopes.error !== null ? [] : (scopes.data ?? []);
@@ -158,7 +163,7 @@ export function ScopesPage() {
 
       <OrgPicker
         orgs={orgs.data ?? []}
-        selectedId={selectedOrgId}
+        selectedId={activeOrgId}
         loading={orgs.loading}
         onSelect={(id) => {
           setSelectedOrgId(id);
@@ -184,7 +189,7 @@ export function ScopesPage() {
         title="Authorized domains"
         description="Subdomain wildcards include every subdomain. Exact patterns match only themselves."
         action={
-          isAdmin && selectedOrgId !== null ? (
+          isAdmin && activeOrgId !== null ? (
             <Button variant="ghost" onClick={() => { setFormOpen((open) => !open); setFormProblem(null); }}>
               {formOpen ? (
                 "Cancel"
@@ -197,7 +202,7 @@ export function ScopesPage() {
           ) : undefined
         }
       >
-        {formOpen && isAdmin && selectedOrgId !== null && (
+        {formOpen && isAdmin && activeOrgId !== null && (
           <form
             onSubmit={handleCreate}
             data-testid="scope-create-form"

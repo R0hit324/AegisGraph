@@ -1,37 +1,43 @@
-/** Phase 3: Asset Details page.
+/**
+ * Phase 3: Asset Details page.
+ *
+ * Shows comprehensive metadata for a specific asset including:
+ * - Asset metadata (type, value, source, timestamps)
+ * - DNS records
+ * - HTTP observations
+ * - Port/service observations
+ * - Technology fingerprints
+ * - Relationships (honest placeholder — the mapping UI arrives in Phase 4+)
+ *
+ * All data comes from `GET /api/v1/discovery/assets/{id}` and its
+ * observation sub-endpoints. Empty stays empty.
+ */
 
-Shows comprehensive metadata for a specific asset including:
-- Asset metadata (type, value, source, timestamps)
-- DNS records
-- HTTP observations
-- Port/service observations
-- Technology fingerprints
-- Discovery history and evidence
-- Relationships to other assets
-*/
-
-import { useCallback, useState, useEffect } from "react";
+import { useCallback } from "react";
+import { useParams } from "react-router-dom";
 import {
-  Button,
+  Bot,
+  Globe,
+  Package,
+  Plug,
+  Search,
+  Link2,
+} from "lucide-react";
+import { useResource } from "@/hooks/useResource";
+import {
+  Badge,
   EmptyState,
   ErrorNotice,
-  Tabs,
-  Tab,
+  Panel,
   Spinner,
   Table,
-  TableHeader,
   TableBody,
-  TableRow,
   TableCell,
-  Badge,
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
+  TableHeader,
+  TableRow,
+  Tabs,
+  Tab,
 } from "@/components/ui/Primitives";
-import { useResource } from "@/hooks/useResource";
-import { useSession } from "@/app/useSession";
-import { useParams } from "react-router-dom";
 import {
   getAsset,
   getAssetDns,
@@ -40,275 +46,182 @@ import {
   getAssetTechnology,
 } from "@/services/discoveryService";
 import { describeAuthError } from "@/app/authErrors";
-import type { AssetResponse } from "@/schemas/discovery";
+import type {
+  AssetResponse,
+  DnsObservationResponse,
+  HttpObservationResponse,
+  PortObservationResponse,
+  TechnologyObservationResponse,
+} from "@/schemas/discovery";
+
+function assetStatusTone(status: string): "ok" | "warn" | "danger" {
+  if (status === "active") return "ok";
+  if (status === "retired") return "warn";
+  return "danger";
+}
 
 export function AssetDetailsPage() {
   const { assetId } = useParams();
-  const session = useSession();
-  const myUserId = session.user?.id ?? -1;
 
   const targetAssetId = Number(assetId);
+  const validId = Number.isFinite(targetAssetId) && targetAssetId > 0;
 
-  // Asset
-  const [asset, setAsset] = useState<AssetResponse | null>(null);
   const loadAsset = useCallback(
-    (id: number) =>
-      setAsset(
-        useResource(
-          () => getAsset(id),
-          id,
-          describeAuthError,
-        ),
-      ),
-    [],
+    () => getAsset(targetAssetId),
+    [targetAssetId],
   );
+  const asset = useResource(loadAsset, targetAssetId, describeAuthError);
 
-  useEffect(() => {
-    if (targetAssetId > 0) {
-      loadAsset(targetAssetId);
-    }
-  }, [targetAssetId, loadAsset]);
+  const loadDns = useCallback(() => getAssetDns(targetAssetId), [targetAssetId]);
+  const dns = useResource(loadDns, targetAssetId, describeAuthError);
 
-  // DNS observations
-  const [dns, setDns] = useState<ResourceResult<any>>({
-    data: [],
-    loading: true,
-    error: null,
-  });
-  const loadDns = useCallback(
-    (id: number) =>
-      setDns(
-        useResource(
-          () => getAssetDns(id),
-          id,
-          describeAuthError,
-        ),
-      ),
-    [],
-  );
-  useEffect(() => {
-    if (targetAssetId > 0) {
-      loadDns(targetAssetId);
-    }
-  }, [targetAssetId, loadDns]);
+  const loadHttp = useCallback(() => getAssetHttp(targetAssetId), [targetAssetId]);
+  const http = useResource(loadHttp, targetAssetId, describeAuthError);
 
-  // HTTP observations
-  const [http, setHttp] = useState<ResourceResult<any>>({
-    data: [],
-    loading: true,
-    error: null,
-  });
-  const loadHttp = useCallback(
-    (id: number) =>
-      setHttp(
-        useResource(
-          () => getAssetHttp(id),
-          id,
-          describeAuthError,
-        ),
-      ),
-    [],
-  );
-  useEffect(() => {
-    if (targetAssetId > 0) {
-      loadHttp(targetAssetId);
-    }
-  }, [targetAssetId, loadHttp]);
+  const loadPorts = useCallback(() => getAssetPorts(targetAssetId), [targetAssetId]);
+  const ports = useResource(loadPorts, targetAssetId, describeAuthError);
 
-  // Port observations
-  const [ports, setPorts] = useState<ResourceResult<any>>({
-    data: [],
-    loading: true,
-    error: null,
-  });
-  const loadPorts = useCallback(
-    (id: number) =>
-      setPorts(
-        useResource(
-          () => getAssetPorts(id),
-          id,
-          describeAuthError,
-        ),
-      ),
-    [];
-  );
-  useEffect(() => {
-    if (targetAssetId > 0) {
-      loadPorts(targetAssetId);
-    }
-  }, [targetAssetId, loadPorts]);
-
-  // Technology observations
-  const [tech, setTech] = useState<ResourceResult<any>>({
-    data: [],
-    loading: true,
-    error: null,
-  });
   const loadTech = useCallback(
-    (id: number) =>
-      setTech(
-        useResource(
-          () => getAssetTechnology(id),
-          id,
-          describeAuthError,
-        ),
-      ),
-    [];
+    () => getAssetTechnology(targetAssetId),
+    [targetAssetId],
   );
-  useEffect(() => {
-    if (targetAssetId > 0) {
-      loadTech(targetAssetId);
-    }
-  }, [targetAssetId, loadTech]);
+  const tech = useResource(loadTech, targetAssetId, describeAuthError);
 
-  // If asset ID changed, reload everything
-  useEffect(() => {
-    if (targetAssetId > 0) {
-      loadAsset(targetAssetId);
-      loadDns(targetAssetId);
-      loadHttp(targetAssetId);
-      loadPorts(targetAssetId);
-      loadTech(targetAssetId);
-    }
-  }, [targetAssetId, loadAsset, loadDns, loadHttp, loadPorts, loadTech]);
-
-  // If asset loaded, verify permissions
-  useEffect(() => {
-    if (asset) {
-      // Check org access - will be handled in components
-    }
-  }, [asset]);
-
-  // Compute breadcrumbs and title
-  const assetTitle = asset
-    ? `${asset.asset_type === "domain"
-      ? asset.value
-      : asset.asset_type === "subdomain"
-        ? asset.value
-        : asset.value}`
-    : "Asset Details";
+  const assetData: AssetResponse | null = asset.data;
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-5 pb-8">
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-text">
-          {assetTitle}
+          {assetData !== null ? assetData.value : "Asset Details"}
         </h1>
-        {asset && (
+        {assetData !== null && (
           <p className="mt-1 text-[13px] text-muted">
-            Asset ID: {asset.id} | Type: {asset.asset_type_display ?? asset.asset_type}
+            Asset ID: {assetData.id} · Type: {assetData.asset_type_display}
           </p>
         )}
       </div>
 
-      {asset === null && (
+      {!validId && (
         <EmptyState
-          icon={<Badge tone="neutral" className="text-2xl"}>📦</Badge>
-          title="Asset not found"
-          description={
-            "The asset could not be loaded. It may have been retired or " +
-            "you may not have permission to view it."
+          icon={<Search size={24} aria-hidden />}
+          title="Invalid asset reference"
+          description="The URL does not point to a numeric asset ID. Pick an asset from the asset inventory instead."
+          action={
+            <a href="/app/discovery/assets" className="text-accent hover:underline">
+              Go to Asset Inventory
+            </a>
           }
         />
       )}
 
-      {asset && asset.id > 0 && (
-        <Tabs defaultValue="metadata" className="my-4">
+      {validId && asset.loading && (
+        <div className="flex items-center gap-2.5 py-3 text-[13px] text-muted" role="status">
+          <Spinner label="Loading asset" />
+          Loading asset details…
+        </div>
+      )}
+
+      {validId && !asset.loading && asset.error !== null && (
+        <ErrorNotice
+          title="Could not load asset"
+          detail={asset.error}
+        />
+      )}
+
+      {validId && !asset.loading && asset.error === null && assetData === null && (
+        <EmptyState
+          icon={<Package size={24} aria-hidden />}
+          title="Asset not found"
+          description="The asset could not be loaded. It may have been retired or you may not have permission to view it."
+        />
+      )}
+
+      {assetData !== null && (
+        <Tabs defaultValue="metadata">
           {/* Metadata tab */}
           <Tab value="metadata" label="Metadata">
-            <Panel>
+            <Panel title="Asset metadata">
               <Table>
-                <TableHeader>
+                <TableBody>
                   <TableRow>
-                    <TableCell>Asset Type</TableCell>
-                    <TableCell>{asset.asset_type_display ?? asset.asset_type}</TableCell>
+                    <TableCell className="text-[12px] text-muted">Asset Type</TableCell>
+                    <TableCell>{assetData.asset_type_display}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>Normalized Value</TableCell>
+                    <TableCell className="text-[12px] text-muted">Value</TableCell>
+                    <TableCell>{assetData.value}</TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-[12px] text-muted">Normalized Value</TableCell>
                     <TableCell>
-                      {asset.normalized_domain ?? asset.normalized_ip ?? asset.value}
+                      {assetData.normalized_domain ?? assetData.normalized_ip ?? assetData.value}
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>Discovery Source</TableCell>
-                    <TableCell>{asset.discovery_source || "—"}</TableCell>
+                    <TableCell className="text-[12px] text-muted">Discovery Source</TableCell>
+                    <TableCell>{assetData.discovery_source ?? "—"}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>Confidence</TableCell>
-                    <TableCell>
-                      <span style={{ width: `${asset.confidence * 100}%` }}>
-                        {asset.confidence.toFixed(2)}
-                      </span>
-                    </TableCell>
+                    <TableCell className="text-[12px] text-muted">Confidence</TableCell>
+                    <TableCell>{assetData.confidence.toFixed(2)}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>Validation Status</TableCell>
+                    <TableCell className="text-[12px] text-muted">Validation Status</TableCell>
                     <TableCell>
-                      <Badge
-                        tone={asset.is_validated ? "ok" : "muted"}
-                        className="min-w-[35px]"
-                      >
-                        {asset.is_validated ? "Validated" : "Not validated"}
+                      <Badge tone={assetData.is_validated ? "ok" : "neutral"}>
+                        {assetData.is_validated ? "Validated" : "Not validated"}
                       </Badge>
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>Asset Status</TableCell>
+                    <TableCell className="text-[12px] text-muted">Asset Status</TableCell>
                     <TableCell>
-                      <Badge
-                        tone={
-                          asset.status === "active"
-                            ? "ok"
-                            : asset.status === "retired"
-                              ? "muted"
-                              : "error"
-                        }
-                      >
-                        {asset.status}
+                      <Badge tone={assetStatusTone(assetData.status)}>
+                        {assetData.status}
                       </Badge>
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>First Seen</TableCell>
-                    <TableCell>
-                      {asset.first_seen ? new Date(asset.first_seen).toLocaleString() : "—"}
-                    </TableCell>
+                    <TableCell className="text-[12px] text-muted">First Seen</TableCell>
+                    <TableCell>{new Date(assetData.first_seen).toLocaleString()}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>Last Seen</TableCell>
-                    <TableCell>
-                      {asset.last_seen ? new Date(asset.last_seen).toLocaleString() : "—"}
-                    </TableCell>
+                    <TableCell className="text-[12px] text-muted">Last Seen</TableCell>
+                    <TableCell>{new Date(assetData.last_seen).toLocaleString()}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>Job</TableCell>
-                    <TableCell>{asset.job_id ?? "—"}</TableCell>
+                    <TableCell className="text-[12px] text-muted">Job</TableCell>
+                    <TableCell>{assetData.job_id ?? "—"}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>Scope</TableCell>
-                    <TableCell>{asset.scope_id ?? "—"}</TableCell>
+                    <TableCell className="text-[12px] text-muted">Scope</TableCell>
+                    <TableCell>{assetData.scope_id ?? "—"}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell>Parent Asset</TableCell>
-                    <TableCell>{asset.parent_asset_id ?? "—"}</TableCell>
+                    <TableCell className="text-[12px] text-muted">Parent Asset</TableCell>
+                    <TableCell>{assetData.parent_asset_id ?? "—"}</TableCell>
                   </TableRow>
-                </Table>
+                </TableBody>
               </Table>
             </Panel>
           </Tab>
 
           {/* DNS tab */}
           <Tab value="dns" label="DNS Records">
-            <Panel>
+            <Panel title="DNS observations">
               {dns.loading && (
-                <div className="text-muted text-[13px]">Loading DNS records…</div>
+                <div className="flex items-center gap-2.5 text-[13px] text-muted" role="status">
+                  <Spinner label="Loading DNS records" />
+                  Loading DNS records…
+                </div>
               )}
 
               {dns.error !== null && (
                 <ErrorNotice title="Could not load DNS records" detail={dns.error} />
               )}
 
-              {!dns.loading && !dns.error && (dns.data ?? []).length > 0 && (
+              {!dns.loading && dns.error === null && (dns.data ?? []).length > 0 && (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -319,7 +232,7 @@ export function AssetDetailsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(dns.data ?? []).map((record: any) => (
+                    {(dns.data ?? []).map((record: DnsObservationResponse) => (
                       <TableRow key={record.id}>
                         <TableCell>{record.record_type}</TableCell>
                         <TableCell>{record.record_value}</TableCell>
@@ -329,9 +242,7 @@ export function AssetDetailsPage() {
                             : "—"}
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            tone={record.resolution_success ? "ok" : "error"}
-                          >
+                          <Badge tone={record.resolution_success ? "ok" : "danger"}>
                             {record.resolution_success ? "Success" : "Failed"}
                           </Badge>
                         </TableCell>
@@ -341,9 +252,9 @@ export function AssetDetailsPage() {
                 </Table>
               )}
 
-              {!dns.loading && !dns.error && (dns.data ?? []).length === 0 && (
+              {!dns.loading && dns.error === null && (dns.data ?? []).length === 0 && (
                 <EmptyState
-                  icon={<Badge tone="neutral" className="text-2xl"}>🔍</Badge>
+                  icon={<Search size={24} aria-hidden />}
                   title="No DNS records yet"
                   description="No DNS observations have been recorded for this asset."
                 />
@@ -353,16 +264,19 @@ export function AssetDetailsPage() {
 
           {/* HTTP tab */}
           <Tab value="http" label="HTTP Observations">
-            <Panel>
+            <Panel title="HTTP observations">
               {http.loading && (
-                <div className="text-muted text-[13px]">Loading HTTP observations…</div>
+                <div className="flex items-center gap-2.5 text-[13px] text-muted" role="status">
+                  <Spinner label="Loading HTTP observations" />
+                  Loading HTTP observations…
+                </div>
               )}
 
               {http.error !== null && (
                 <ErrorNotice title="Could not load HTTP observations" detail={http.error} />
               )}
 
-              {!http.loading && !http.error && (http.data ?? []).length > 0 && (
+              {!http.loading && http.error === null && (http.data ?? []).length > 0 && (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -374,32 +288,30 @@ export function AssetDetailsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(http.data ?? []).map((obs: any) => (
+                    {(http.data ?? []).map((obs: HttpObservationResponse) => (
                       <TableRow key={obs.id}>
                         <TableCell>{obs.status_code ?? "—"}</TableCell>
                         <TableCell>{obs.final_url ?? "—"}</TableCell>
                         <TableCell>
-                          {obs.response_time_ms
+                          {obs.response_time_ms !== null
                             ? `${obs.response_time_ms.toFixed(1)} ms`
                             : "—"}
                         </TableCell>
                         <TableCell>
-                          <Badge tone={obs.tls_available ? "ok" : "muted"}>
+                          <Badge tone={obs.tls_available ? "ok" : "neutral"}>
                             {obs.tls_available ? "Yes" : "No"}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          {obs.page_title ?? "—"}
-                        </TableCell>
+                        <TableCell>{obs.page_title ?? "—"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               )}
 
-              {!http.loading && !http.error && (http.data ?? []).length === 0 && (
+              {!http.loading && http.error === null && (http.data ?? []).length === 0 && (
                 <EmptyState
-                  icon={<Badge tone="neutral" className="text-2xl"}>🌐</Badge>
+                  icon={<Globe size={24} aria-hidden />}
                   title="No HTTP observations yet"
                   description="No HTTP/HTTPS observations have been recorded for this asset."
                 />
@@ -409,16 +321,19 @@ export function AssetDetailsPage() {
 
           {/* Ports tab */}
           <Tab value="ports" label="Port/Service Observations">
-            <Panel>
+            <Panel title="Port and service observations">
               {ports.loading && (
-                <div className="text-muted text-[13px]">Loading port observations…</div>
+                <div className="flex items-center gap-2.5 text-[13px] text-muted" role="status">
+                  <Spinner label="Loading port observations" />
+                  Loading port observations…
+                </div>
               )}
 
               {ports.error !== null && (
                 <ErrorNotice title="Could not load port observations" detail={ports.error} />
               )}
 
-              {!ports.loading && !ports.error && (ports.data ?? []).length > 0 && (
+              {!ports.loading && ports.error === null && (ports.data ?? []).length > 0 && (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -430,12 +345,18 @@ export function AssetDetailsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(ports.data ?? []).map((obs: any) => (
+                    {(ports.data ?? []).map((obs: PortObservationResponse) => (
                       <TableRow key={obs.id}>
                         <TableCell>{obs.port}</TableCell>
                         <TableCell>
                           <Badge
-                            tone={obs.status === "open" ? "ok" : obs.status === "closed" ? "muted" : "error"}
+                            tone={
+                              obs.status === "open"
+                                ? "ok"
+                                : obs.status === "closed"
+                                  ? "neutral"
+                                  : "danger"
+                            }
                           >
                             {obs.status}
                           </Badge>
@@ -449,9 +370,9 @@ export function AssetDetailsPage() {
                 </Table>
               )}
 
-              {!ports.loading && !ports.error && (ports.data ?? []).length === 0 && (
+              {!ports.loading && ports.error === null && (ports.data ?? []).length === 0 && (
                 <EmptyState
-                  icon={<Badge tone="neutral" className="text-2xl"}>🔌</Badge>
+                  icon={<Plug size={24} aria-hidden />}
                   title="No port observations yet"
                   description="No port/service observations have been recorded for this asset."
                 />
@@ -461,16 +382,22 @@ export function AssetDetailsPage() {
 
           {/* Technology tab */}
           <Tab value="technology" label="Technology Fingerprints">
-            <Panel>
+            <Panel title="Technology fingerprints">
               {tech.loading && (
-                <div className="text-muted text-[13px]">Loading technology observations…</div>
+                <div className="flex items-center gap-2.5 text-[13px] text-muted" role="status">
+                  <Spinner label="Loading technology observations" />
+                  Loading technology observations…
+                </div>
               )}
 
               {tech.error !== null && (
-                <ErrorNotice title="Could not load technology observations" detail={tech.error} />
+                <ErrorNotice
+                  title="Could not load technology observations"
+                  detail={tech.error}
+                />
               )}
 
-              {!tech.loading && !tech.error && (tech.data ?? []).length > 0 && (
+              {!tech.loading && tech.error === null && (tech.data ?? []).length > 0 && (
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -482,18 +409,14 @@ export function AssetDetailsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(tech.data ?? []).map((obs: any) => (
+                    {(tech.data ?? []).map((obs: TechnologyObservationResponse) => (
                       <TableRow key={obs.id}>
                         <TableCell>{obs.category}</TableCell>
                         <TableCell>{obs.name ?? "—"}</TableCell>
                         <TableCell>{obs.version ?? "—"}</TableCell>
+                        <TableCell>{obs.confidence.toFixed(2)}</TableCell>
                         <TableCell>
-                          <span style={{ width: `${obs.confidence * 100}%` }}>
-                            {obs.confidence.toFixed(2)}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge tone={obs.is_primary ? "ok" : "muted"}>
+                          <Badge tone={obs.is_primary ? "ok" : "neutral"}>
                             {obs.is_primary ? "Primary" : "Secondary"}
                           </Badge>
                         </TableCell>
@@ -503,9 +426,9 @@ export function AssetDetailsPage() {
                 </Table>
               )}
 
-              {!tech.loading && !tech.error && (tech.data ?? []).length === 0 && (
+              {!tech.loading && tech.error === null && (tech.data ?? []).length === 0 && (
                 <EmptyState
-                  icon={<Badge tone="neutral" className="text-2xl"}>🤖</Badge>
+                  icon={<Bot size={24} aria-hidden />}
                   title="No technology observations yet"
                   description="No technology fingerprint observations have been recorded for this asset."
                 />
@@ -515,10 +438,9 @@ export function AssetDetailsPage() {
 
           {/* Relationships tab */}
           <Tab value="relationships" label="Asset Relationships">
-            <Panel>
-              {/* Would show incoming/outgoing relationships */}
+            <Panel title="Asset relationships">
               <EmptyState
-                icon={<Badge tone="neutral" className="text-2xl"}>🔗</Badge>
+                icon={<Link2 size={24} aria-hidden />}
                 title="Relationships not yet displayed"
                 description="Asset relationship mapping is available in Phase 4+."
               />

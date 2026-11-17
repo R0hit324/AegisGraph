@@ -15,6 +15,8 @@ user_organizations, audit_logs, roles, permissions) tables are preserved
 unchanged.
 """
 
+from collections.abc import Sequence
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -86,7 +88,7 @@ def upgrade() -> None:
                   nullable=False, server_default=sa.text("now()"),
                   onupdate=sa.text("now()")),
         sa.Column("is_validated", sa.Boolean(),
-                  nullable=False, server_default=sa.text("0")),
+                  nullable=False, server_default=sa.text("false")),
         sa.Column("confidence", sa.Float(),
                   nullable=False, server_default=sa.text("0.0")),
         sa.Column("discovery_source", sa.String(length=200), nullable=True, index=True),
@@ -142,7 +144,7 @@ def upgrade() -> None:
         sa.Column("query_timestamp", sa.DateTime(timezone=True),
                   nullable=False, server_default=sa.text("now()")),
         sa.Column("resolution_success", sa.Boolean(),
-                  nullable=False, server_default=sa.text("1")),
+                  nullable=False, server_default=sa.text("true")),
         sa.Column("error_message", sa.String(length=500), nullable=True),
         sa.Column("resolved_target", sa.String(length=39), nullable=True, index=True),
     )
@@ -162,7 +164,7 @@ def upgrade() -> None:
         sa.Column("response_time_ms", sa.Float(), nullable=True),
         sa.Column("response_size_bytes", sa.Integer(), nullable=True),
         sa.Column("tls_available", sa.Boolean(),
-                  nullable=False, server_default=sa.text("0")),
+                  nullable=False, server_default=sa.text("false")),
         sa.Column("tls_version", sa.String(length=30), nullable=True),
         sa.Column("tls_cipher_suite", sa.String(length=100), nullable=True),
         sa.Column("certificate_subject", sa.String(length=500), nullable=True),
@@ -221,7 +223,7 @@ def upgrade() -> None:
         sa.Column("confidence", sa.Float(),
                   nullable=False, server_default=sa.text("0.5")),
         sa.Column("is_primary", sa.Boolean(),
-                  nullable=False, server_default=sa.text("0")),
+                  nullable=False, server_default=sa.text("false")),
     )
     op.create_index("ix_tech_assets_org", "technology_observations", ["asset_id"])
     op.create_index("ix_tech_category", "technology_observations", ["category"])

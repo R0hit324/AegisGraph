@@ -24,6 +24,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -99,10 +100,9 @@ class DiscoveryJob(Base):
     )
 
     # Relationships
-    organization = relationship("Organization", back_populates="discovery_jobs")
-    scope = relationship("Scope", back_populates="discovery_jobs")
+    organization = relationship("Organization")
+    scope = relationship("Scope")
     assets = relationship("Asset", back_populates="job", cascade="all, delete-orphan")
-    audit = relationship("AuditLog", back_populates="job", cascade="all, delete-orphan")
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ class Asset(Base):
     )  # for IP-type assets (IPv4 or IPv6, no CIDR)
 
     # Relationships
-    organization = relationship("Organization", back_populates="assets")
+    organization = relationship("Organization")
     dns_observations = relationship("DnsObservation", back_populates="asset", cascade="all, delete-orphan")
     http_observations = relationship("HttpObservation", back_populates="asset", cascade="all, delete-orphan")
     port_observations = relationship("PortObservation", back_populates="asset", cascade="all, delete-orphan")
@@ -228,12 +228,8 @@ class AssetRelationship(Base):
         ),
     )
 
-    source_asset = relationship("Asset", foreign_keys=[source_asset_id], back_populates="outgoing_relationships")
-    target_asset = relationship("Asset", foreign_keys=[target_asset_id], back_populates="incoming_relationships")
-
-
-# Add reverse relationships for Asset
-# (SQLAlchemy will handle these via the back_populates above, but let's be explicit)
+    source_asset = relationship("Asset", foreign_keys=[source_asset_id])
+    target_asset = relationship("Asset", foreign_keys=[target_asset_id])
 
 
 # ---------------------------------------------------------------------------
